@@ -63,10 +63,8 @@ function Test-PythonPackage {
 }
 
 function Update-Path {
-    # Opdater PATH i nuværende session
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     
-    # Opdater også Chocolatey specifikt
     if (Test-Path "C:\ProgramData\chocolatey\bin") {
         $env:Path = "C:\ProgramData\chocolatey\bin;" + $env:Path
     }
@@ -95,15 +93,12 @@ function Install-Chocolatey {
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
         iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
         
-        # Opdater PATH med det samme
         Update-Path
         
-        # Tjek om det virkede
         if (Test-ProgramInstalled "choco") {
             Write-Host "  Chocolatey installeret"
             return $true
         } else {
-            # Prøv at tilføje stien manuelt
             if (Test-Path "C:\ProgramData\chocolatey\bin\choco.exe") {
                 $env:Path = "C:\ProgramData\chocolatey\bin;" + $env:Path
                 Write-Host "  Chocolatey installeret (PATH opdateret manuelt)"
@@ -129,12 +124,11 @@ function Install-SystemTool {
         Write-Host "  Installerer $ToolName via Chocolatey..."
         try {
             choco install $ChocolateyPackage -y --limit-output
-            # Opdater PATH efter installation
             Update-Path
             Write-Host "    $ToolName installeret"
             return $true
         } catch {
-            Write-Host "    Fejl ved installation af $ToolName: $_"
+            Write-Host "    Fejl ved installation af $ToolName : $_"
             return $false
         }
     } else {
@@ -156,7 +150,6 @@ if (-not $isAdmin) {
     }
 }
 
-# Opdater PATH ved start
 Update-Path
 
 Write-Host "[1/8] Tjekker Python..."
@@ -165,7 +158,6 @@ if (-not (Test-ProgramInstalled "python")) {
     if ($isAdmin) {
         Write-Host "  Installerer Python via Chocolatey..."
         
-        # Sørg for Chocolatey er installeret først
         if (-not (Test-ProgramInstalled "choco")) {
             Install-Chocolatey
         }
@@ -173,7 +165,6 @@ if (-not (Test-ProgramInstalled "python")) {
         if (Test-ProgramInstalled "choco") {
             choco install python -y --limit-output
             Update-Path
-            # Forsøg at refreshe miljøet
             refreshenv 2>$null
         } else {
             Write-Host "  Kunne ikke installere Chocolatey - installer Python manuelt"
@@ -190,7 +181,6 @@ if (-not (Test-ProgramInstalled "python")) {
     Write-Host "  Python fundet: $pythonVersion"
 }
 
-# Opdater PATH igen efter Python installation
 Update-Path
 
 Write-Host "[2/8] Opgraderer pip..."
@@ -234,7 +224,6 @@ if (-not (Test-ProgramInstalled "choco")) {
     Write-Host "  Chocolatey fundet"
 }
 
-# Opdater PATH igen efter Chocolatey
 Update-Path
 
 Write-Host "[6/8] Installerer system-værktøjer..."
@@ -248,7 +237,6 @@ $systemTools = @(
 $toolErrors = @()
 
 foreach ($tool in $systemTools) {
-    # Opdater PATH før hver check (i tilfælde af at forrige installation tilføjede noget)
     Update-Path
     
     if (Install-SystemTool -ToolName $tool.Name -ChocolateyPackage $tool.ChocolateyPackage) {
@@ -260,7 +248,6 @@ foreach ($tool in $systemTools) {
 
 Write-Host "[7/8] Installerer dansk sprogpakke til Tesseract..."
 
-# Opdater PATH igen
 Update-Path
 
 if (Test-ProgramInstalled "tesseract") {
@@ -268,7 +255,6 @@ if (Test-ProgramInstalled "tesseract") {
         $tesseractPath = (Get-Command tesseract).Source
         $tessdataDir = Join-Path (Split-Path $tesseractPath -Parent) "tessdata"
         
-        # Opret tessdata mappe hvis den ikke findes
         if (-not (Test-Path $tessdataDir)) {
             New-Item -ItemType Directory -Force -Path $tessdataDir | Out-Null
         }
@@ -323,7 +309,6 @@ foreach ($script in $scripts) {
     }
 }
 
-# Endelig PATH opdatering
 Update-Path
 
 Write-Host "Opretter genveje..."
@@ -456,4 +441,4 @@ Write-Host ""
 
 Stop-Transcript
 
-Read-Host "Tryk Enter for at afslutte
+Read-Host "Tryk Enter for at afslutte"
