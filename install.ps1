@@ -211,10 +211,32 @@ foreach ($package in $pythonPackages) {
 }
 
 Write-Host "[4/8] Installerer OCRmyPDF..."
-if (Test-PythonPackage "ocrmypdf") {
-    Write-Host "  OCRmyPDF allerede installeret"
-} else {
-    Install-PythonPackage "ocrmypdf"
+
+# Tjek om ocrmypdf er installeret som kommandolinjeværktøj
+$ocrmypdfInstalled = $false
+try {
+    $result = python -m ocrmypdf --version 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $ocrmypdfInstalled = $true
+        Write-Host "  OCRmyPDF allerede installeret"
+    }
+} catch {
+    # Ignorer fejl - den er ikke installeret
+}
+
+if (-not $ocrmypdfInstalled) {
+    Write-Host "  Installerer OCRmyPDF..."
+    try {
+        python -m pip install ocrmypdf
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "    OCRmyPDF installeret"
+        } else {
+            throw "pip install fejlede"
+        }
+    } catch {
+        Write-Host "    Fejl ved installation af OCRmyPDF: $_"
+        Write-Host "    Prøv at installere manuelt: pip install ocrmypdf"
+    }
 }
 
 Write-Host "[5/8] Tjekker Chocolatey..."
