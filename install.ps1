@@ -36,7 +36,7 @@ if ($args -contains "-WhatIf" -or $args -contains "-DryRun") {
 }
 
 $confirm = Read-Host "Fortsæt med installationen? (j/n)"
-if ($confirm -ne "j" -and $confirm -ne "j") {
+if ($confirm -ne "j" -and $confirm -ne "J") {
     Write-Host "Installation afbrudt."
     Stop-Transcript
     exit 0
@@ -63,7 +63,13 @@ function Test-PythonPackage {
 }
 
 function Update-Path {
+    # Opdater PATH i nuværende session
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    
+    # Opdater også Chocolatey specifikt
+    if (Test-Path "C:\ProgramData\chocolatey\bin") {
+        $env:Path = "C:\ProgramData\chocolatey\bin;" + $env:Path
+    }
 }
 
 function Install-PythonPackage {
@@ -82,41 +88,97 @@ function Install-PythonPackage {
     }
 }
 
+function Install-Chocolatey {
+    Write-Host "  Installerer Chocolatey..."
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    try {
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        
+        # Opdater PATH med det samme
+        Update-Path
+        
+        # Tjek om det virkede
+        if (Test-ProgramInstalled "choco") {
+            Write-Host "  Chocolatey installeret"
+            return $true
+        } else {
+            # Prøv at tilføje stien manuelt
+            if (Test-Path "C:\ProgramData\chocolatey\bin\choco.exe") {
+                $env:Path = "C:\ProgramData\chocolatey\bin;" + $env:Path
+                Write-Host "  Chocolatey installeret (PATH opdateret manuelt)"
+                return $true
+            }
+            throw "Kunne ikke finde choco efter installation"
+        }
+    } catch {
+        Write-Host "  Kunne ikke installere Chocolatey: $_"
+        return $false
+    }
+}
+
+function Install-SystemTool {
+    param([string]$ToolName, [string]$ChocolateyPackage)
+    
+    if (Test-ProgramInstalled $ToolName) {
+        Write-Host "  $ToolName allerede installeret"
+        return $true
+    }
+    
+    if (Test-ProgramInstalled "choco") {
+        Write-Host "  Installerer $ToolName via Chocolatey..."
+        try {
+            choco install $ChocolateyPackage -y --limit-output
+            # Opdater PATH efter installation
+            Update-Path
+            Write-Host "    $ToolName installeret"
+            return $true
+        } catch {
+            Write-Host "    Fejl ved installation af $ToolName: $_"
+            return $false
+        }
+    } else {
+        Write-Host "  $ToolName mangler - installer manuelt:"
+        Write-Host "    choco install $ChocolateyPackage -y"
+        return $false
+    }
+}
+
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "Advarsel: Scriptet kører ikke som Administrator!"
     Write-Host "Nogle installationer (især Chocolatey og system-pakker) kræver administrator-rettigheder."
     $continue = Read-Host "Forsæt alligevel? (j/n)"
-    if ($continue -ne "j" -and $continue -ne "j") {
+    if ($continue -ne "j" -and $continue -ne "J") {
         Write-Host "Installation afbrudt. Kør scriptet som Administrator for bedste resultat."
         Stop-Transcript
         exit 0
     }
 }
 
+# Opdater PATH ved start
+Update-Path
+
 Write-Host "[1/8] Tjekker Python..."
 if (-not (Test-ProgramInstalled "python")) {
     Write-Host "  Python er ikke installeret!"
     if ($isAdmin) {
         Write-Host "  Installerer Python via Chocolatey..."
+        
+        # Sørg for Chocolatey er installeret først
         if (-not (Test-ProgramInstalled "choco")) {
-            Write-Host "  Installerer Chocolatey..."
-            Set-ExecutionPolicy Bypass -Scope Process -Force
-            try {
-                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-                iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-                Update-Path
-            } catch {
-                Write-Host "  Kunne ikke installere Chocolatey: $_"
-                Write-Host "  Installer Python manuelt fra: https://www.python.org/downloads/"
-                Read-Host "  Tryk Enter når Python er installeret..."
-            }
+            Install-Chocolatey
         }
         
         if (Test-ProgramInstalled "choco") {
-            choco install python -y
+            choco install python -y --limit-output
             Update-Path
+            # Forsøg at refreshe miljøet
             refreshenv 2>$null
+        } else {
+            Write-Host "  Kunne ikke installere Chocolatey - installer Python manuelt"
+            Write-Host "  Download fra: https://www.python.org/downloads/"
+            Read-Host "  Tryk Enter når Python er installeret..."
         }
     } else {
         Write-Host "  Installer Python manuelt fra: https://www.python.org/downloads/"
@@ -127,6 +189,9 @@ if (-not (Test-ProgramInstalled "python")) {
     $pythonVersion = python --version
     Write-Host "  Python fundet: $pythonVersion"
 }
+
+# Opdater PATH igen efter Python installation
+Update-Path
 
 Write-Host "[2/8] Opgraderer pip..."
 try {
@@ -164,20 +229,13 @@ if (Test-PythonPackage "ocrmypdf") {
 
 Write-Host "[5/8] Tjekker Chocolatey..."
 if (-not (Test-ProgramInstalled "choco")) {
-    Write-Host "  Installerer Chocolatey..."
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-    try {
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-        Update-Path
-        Write-Host "  Chocolatey installeret"
-    } catch {
-        Write-Host "  Kunne ikke installere Chocolatey: $_"
-        Write-Host "  Nogle system-værktøjer vil ikke blive installeret automatisk."
-    }
+    Install-Chocolatey
 } else {
     Write-Host "  Chocolatey fundet"
 }
+
+# Opdater PATH igen efter Chocolatey
+Update-Path
 
 Write-Host "[6/8] Installerer system-værktøjer..."
 
@@ -190,49 +248,48 @@ $systemTools = @(
 $toolErrors = @()
 
 foreach ($tool in $systemTools) {
-    if (Test-ProgramInstalled $tool.Name) {
-        Write-Host "  $($tool.Name) allerede installeret"
+    # Opdater PATH før hver check (i tilfælde af at forrige installation tilføjede noget)
+    Update-Path
+    
+    if (Install-SystemTool -ToolName $tool.Name -ChocolateyPackage $tool.ChocolateyPackage) {
+        # Success
     } else {
-        if ($isAdmin -and (Test-ProgramInstalled "choco")) {
-            Write-Host "  Installerer $($tool.Name) via Chocolatey..."
-            try {
-                choco install $tool.ChocolateyPackage -y
-                Write-Host "    $($tool.Name) installeret"
-            } catch {
-                Write-Host "    Fejl ved installation af $($tool.Name): $_"
-                $toolErrors += $tool.Name
-            }
-        } else {
-            Write-Host "  $($tool.Name) mangler - installer manuelt:"
-            if ($isAdmin) {
-                Write-Host "    choco install $($tool.ChocolateyPackage) -y"
-            } else {
-                Write-Host "    Kør scriptet som Administrator for automatisk installation"
-            }
-            $toolErrors += $tool.Name
-        }
+        $toolErrors += $tool.Name
     }
 }
 
 Write-Host "[7/8] Installerer dansk sprogpakke til Tesseract..."
 
+# Opdater PATH igen
+Update-Path
+
 if (Test-ProgramInstalled "tesseract") {
-    $tesseractPath = (Get-Command tesseract).Source
-    $tessdataDir = Join-Path (Split-Path $tesseractPath -Parent) "tessdata"
-    
-    $danFile = Join-Path $tessdataDir "dan.traineddata"
-    if (Test-Path $danFile) {
-        Write-Host "  Dansk sprogpakke allerede installeret"
-    } else {
-        Write-Host "  Downloader dansk sprogpakke..."
-        try {
-            $danUrl = "https://github.com/tesseract-ocr/tessdata/raw/main/dan.traineddata"
-            Invoke-WebRequest -Uri $danUrl -OutFile $danFile
-            Write-Host "  Dansk sprogpakke installeret"
-        } catch {
-            Write-Host "  Kunne ikke downloade dansk sprogpakke: $_"
-            Write-Host "    Download manuelt fra: https://github.com/tesseract-ocr/tessdata"
+    try {
+        $tesseractPath = (Get-Command tesseract).Source
+        $tessdataDir = Join-Path (Split-Path $tesseractPath -Parent) "tessdata"
+        
+        # Opret tessdata mappe hvis den ikke findes
+        if (-not (Test-Path $tessdataDir)) {
+            New-Item -ItemType Directory -Force -Path $tessdataDir | Out-Null
         }
+        
+        $danFile = Join-Path $tessdataDir "dan.traineddata"
+        if (Test-Path $danFile) {
+            Write-Host "  Dansk sprogpakke allerede installeret"
+        } else {
+            Write-Host "  Downloader dansk sprogpakke..."
+            try {
+                $danUrl = "https://github.com/tesseract-ocr/tessdata/raw/main/dan.traineddata"
+                Invoke-WebRequest -Uri $danUrl -OutFile $danFile
+                Write-Host "  Dansk sprogpakke installeret"
+            } catch {
+                Write-Host "  Kunne ikke downloade dansk sprogpakke: $_"
+                Write-Host "    Download manuelt fra: https://github.com/tesseract-ocr/tessdata"
+                Write-Host "    Gem i: $tessdataDir"
+            }
+        }
+    } catch {
+        Write-Host "  Fejl ved installation af dansk sprogpakke: $_"
     }
 } else {
     Write-Host "  Tesseract ikke installeret - dansk sprogpakke springes over"
@@ -243,7 +300,6 @@ Write-Host "[8/8] Henter scripts fra GitHub..."
 $scriptDir = "$env:USERPROFILE\Documents\BookDigitalizer"
 New-Item -ItemType Directory -Force -Path $scriptDir | Out-Null
 
-# Skift disse til dine egne værdier
 $githubUser = "MBBP1"
 $githubRepo = "MBBP1.github.io"
 $rawBase = "https://raw.githubusercontent.com/$githubUser/$githubRepo/main"
@@ -267,6 +323,7 @@ foreach ($script in $scripts) {
     }
 }
 
+# Endelig PATH opdatering
 Update-Path
 
 Write-Host "Opretter genveje..."
@@ -384,7 +441,8 @@ if ($failedPackages.Count -gt 0) {
 
 if ($toolErrors.Count -gt 0) {
     Write-Host "Foelgende system-vaerktoejer fejlede: $($toolErrors -join ', ')"
-    Write-Host "   Koer scriptet som Administrator eller installer manuelt."
+    Write-Host "   Proev at koere: choco install $($toolErrors -join ' ') -y"
+    Write-Host "   Eller installer manuelt via Chocolatey."
 }
 
 if ($downloadErrors.Count -gt 0) {
@@ -398,4 +456,4 @@ Write-Host ""
 
 Stop-Transcript
 
-Read-Host "Tryk Enter for at afslutte"
+Read-Host "Tryk Enter for at afslutte
