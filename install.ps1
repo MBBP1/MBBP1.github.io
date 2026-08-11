@@ -212,29 +212,25 @@ foreach ($package in $pythonPackages) {
 
 Write-Host "[4/8] Installerer OCRmyPDF..."
 
-# Tjek om ocrmypdf er installeret som kommandolinjeværktøj
-$ocrmypdfInstalled = $false
+# Tjek om ocrmypdf virker som kommandolinjeværktøj
+$ocrmypdfWorks = $false
 try {
-    $result = python -m ocrmypdf --version 2>&1
+    $output = python -m ocrmypdf --version 2>&1
     if ($LASTEXITCODE -eq 0) {
-        $ocrmypdfInstalled = $true
+        $ocrmypdfWorks = $true
         Write-Host "  OCRmyPDF allerede installeret"
     }
 } catch {
-    # Ignorer fejl - den er ikke installeret
+    # Ikke installeret
 }
 
-if (-not $ocrmypdfInstalled) {
+if (-not $ocrmypdfWorks) {
     Write-Host "  Installerer OCRmyPDF..."
-    try {
-        python -m pip install ocrmypdf
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "    OCRmyPDF installeret"
-        } else {
-            throw "pip install fejlede"
-        }
-    } catch {
-        Write-Host "    Fejl ved installation af OCRmyPDF: $_"
+    $installResult = python -m pip install ocrmypdf 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "    OCRmyPDF installeret"
+    } else {
+        Write-Host "    Fejl ved installation af OCRmyPDF"
         Write-Host "    Prøv at installere manuelt: pip install ocrmypdf"
     }
 }
